@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ShieldCheck,
   Search,
@@ -13,6 +13,7 @@ const MAIN_SHEET_ID = "1R7SpirGzmgUzZK6_MwcH0LGAubwShjsaxxJG2fFDi5g";
 const MAIN_GID = "1598342668";
 const FTD_SHEET_ID = "1YaUUYYXVPOffZQr7L51SPaDscz7XA6foQImhFqbu5yk";
 const FTD_GID = "476091669";
+const HOURS_MANAGER_GID = "264837711";
 
 const REQUIREMENTS = {
   "Probationary Agent": {
@@ -77,6 +78,7 @@ const REQUIREMENTS = {
     minTir: 21,
     mustBeInFtd: true,
     minFtdJobs: 6,
+    minMonthlyHours: 25,
   },
   "Agent Commander": {
     nextRank: "Section Commander",
@@ -84,6 +86,7 @@ const REQUIREMENTS = {
     minTir: 21,
     mustBeInFtd: true,
     minFtdJobs: 3,
+    minMonthlyHours: 25,
   },
   "Section Commander": {
     nextRank: "Commander in Charge",
@@ -91,6 +94,7 @@ const REQUIREMENTS = {
     minTir: 21,
     mustBeInFtd: true,
     minFtdJobs: 3,
+    minMonthlyHours: 25,
   },
   "Commander in Charge": {
     nextRank: "Command Specialist",
@@ -98,6 +102,7 @@ const REQUIREMENTS = {
     minTir: 21,
     mustBeInFtd: true,
     minFtdJobs: 3,
+    minMonthlyHours: 25,
   },
   "Command Specialist": {
     nextRank: null,
@@ -105,6 +110,7 @@ const REQUIREMENTS = {
     minTir: 28,
     mustBeInFtd: true,
     minFtdJobs: 3,
+    minMonthlyHours: 30,
   },
 };
 
@@ -119,6 +125,7 @@ const EMPTY_AGENT = {
   tir: "",
   inFtd: false,
   ftdJobs: "",
+  monthlyHours: "",
 };
 
 const styles = {
@@ -140,13 +147,12 @@ const styles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: "24px",
   },
-  
   card: {
     background: "#ffffff",
     border: "1px solid rgba(17,24,39,0.08)",
     borderRadius: "24px",
     padding: "24px",
-    boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
+    boxShadow: "0 16px 40px rgba(0,0,0,0.08)",
   },
   headerRow: {
     display: "flex",
@@ -306,6 +312,22 @@ const styles = {
     marginTop: "6px",
     fontWeight: 700,
   },
+  builtBy: {
+    position: "fixed",
+    bottom: "16px",
+    right: "16px",
+    borderRadius: "12px",
+    background: "linear-gradient(to right, #ffffff, #f4f4f5)",
+    padding: "6px 12px",
+    fontSize: "12px",
+    fontWeight: 600,
+    color: "#3f3f46",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+    textDecoration: "none",
+    zIndex: 9999,
+    border: "1px solid rgba(17,24,39,0.08)",
+    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+  },
 };
 
 function normalize(value) {
@@ -383,7 +405,9 @@ function getHeaderMap(row) {
   const map = {};
   row.forEach((cell, index) => {
     const key = normalize(cell);
-    if (key) map[key] = index;
+    if (key) {
+      map[key] = index;
+    }
   });
   return map;
 }
@@ -429,7 +453,10 @@ function findFtdEmployee(rows, discordId) {
 
   for (const row of rows) {
     const normalizedRow = row.map(normalize);
-    if (normalizedRow.includes("discord id") && (normalizedRow.includes("activities") || normalizedRow.includes("total logs"))) {
+    if (
+      normalizedRow.includes("discord id") &&
+      (normalizedRow.includes("activities") || normalizedRow.includes("total logs"))
+    ) {
       headerMap = getHeaderMap(row);
       continue;
     }
@@ -458,6 +485,21 @@ function findFtdEmployee(rows, discordId) {
   };
 }
 
+function findMonthlyHoursEmployee(rows, discordId) {
+  for (const row of rows) {
+    const rowDiscordId = cleanDiscordId(row[5]);
+    if (!rowDiscordId || rowDiscordId !== discordId) continue;
+
+    return {
+      monthlyHours: Number(row[6] || 0),
+    };
+  }
+
+  return {
+    monthlyHours: 0,
+  };
+}
+
 async function fetchRosterData(discordId) {
   const cleanId = cleanDiscordId(discordId);
   if (!cleanId) {
@@ -465,9 +507,10 @@ async function fetchRosterData(discordId) {
   }
 
   try {
-    const [mainRows, ftdRows] = await Promise.all([
+    const [mainRows, ftdRows, hoursManagerRows] = await Promise.all([
       fetchCsv(MAIN_SHEET_ID, MAIN_GID),
       fetchCsv(FTD_SHEET_ID, FTD_GID),
+      fetchCsv(MAIN_SHEET_ID, HOURS_MANAGER_GID),
     ]);
 
     const mainEmployee = findMainRosterEmployee(mainRows, cleanId);
@@ -476,6 +519,7 @@ async function fetchRosterData(discordId) {
     }
 
     const ftdEmployee = findFtdEmployee(ftdRows, cleanId);
+    const monthlyHoursEmployee = findMonthlyHoursEmployee(hoursManagerRows, cleanId);
 
     return {
       ok: true,
@@ -483,12 +527,14 @@ async function fetchRosterData(discordId) {
         ...mainEmployee,
         inFtd: Boolean(ftdEmployee.inFtd),
         ftdJobs: Number(ftdEmployee.ftdJobs || 0),
+        monthlyHours: Number(monthlyHoursEmployee.monthlyHours || 0),
       },
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: "Could not read one or both Google Sheets. Make sure the sheets are publicly viewable and exportable.",
+      error:
+        "Could not read one or both Google Sheets. Make sure the sheets are publicly viewable and exportable.",
     };
   }
 }
@@ -507,6 +553,7 @@ function evaluatePromotion(agent) {
   const hours = Number(agent.hours || 0);
   const tir = Number(agent.tir || 0);
   const ftdJobs = Number(agent.ftdJobs || 0);
+  const monthlyHours = Number(agent.monthlyHours || 0);
   const missing = [];
 
   if (hours < requirement.minHours) {
@@ -519,7 +566,10 @@ function evaluatePromotion(agent) {
     missing.push("Must be in FTD");
   }
   if (ftdJobs < requirement.minFtdJobs) {
-    missing.push(`${requirement.minFtdJobs - ftdJobs} more FTD activit(ies)`);
+    missing.push(`${requirement.minFtdJobs - ftdJobs} more FTD activities`);
+  }
+  if ((requirement.minMonthlyHours || 0) > 0 && monthlyHours < requirement.minMonthlyHours) {
+    missing.push(`${requirement.minMonthlyHours - monthlyHours} more monthly hour(s)`);
   }
 
   if (!requirement.nextRank) {
@@ -537,6 +587,46 @@ function evaluatePromotion(agent) {
     missing,
     requirement,
   };
+}
+
+function runSelfTests() {
+  console.assert(cleanDiscordId("<@640288455766704162>") === "640288455766704162", "cleanDiscordId should strip non-digits");
+
+  const parsed = parseCsvLine('alpha,"beta,gamma",delta');
+  console.assert(parsed.length === 3, "parseCsvLine should keep 3 cells");
+  console.assert(parsed[1] === "beta,gamma", "parseCsvLine should preserve commas inside quotes");
+
+  const eligible = evaluatePromotion({
+    rank: "Agent",
+    hours: 5,
+    tir: 7,
+    inFtd: false,
+    ftdJobs: 0,
+    monthlyHours: 0,
+  });
+  console.assert(eligible.eligible === true, "Agent with exact requirements should be eligible");
+
+  const missingFtd = evaluatePromotion({
+    rank: "Senior Special Agent",
+    hours: 5,
+    tir: 14,
+    inFtd: false,
+    ftdJobs: 0,
+    monthlyHours: 0,
+  });
+  console.assert(missingFtd.eligible === false, "Senior Special Agent without FTD should not be eligible");
+  console.assert(missingFtd.missing.includes("Must be in FTD"), "Should report missing FTD membership");
+
+  const missingMonthly = evaluatePromotion({
+    rank: "Command Specialist",
+    hours: 5,
+    tir: 28,
+    inFtd: true,
+    ftdJobs: 3,
+    monthlyHours: 22,
+  });
+  console.assert(missingMonthly.eligible === false, "Command Specialist under monthly hours should not be eligible");
+  console.assert(missingMonthly.missing.includes("8 more monthly hour(s)"), "Should report missing monthly hours");
 }
 
 function StatPill({ label, value }) {
@@ -557,7 +647,7 @@ function RequirementRow({ rank, data }) {
       </div>
       <div>
         <div style={styles.smallLabel}>Next Rank</div>
-        <div style={styles.strong}>{data.nextRank ?? "Top Rank"}</div>
+        <div style={styles.strong}>{data.nextRank ?? "High Command"}</div>
       </div>
       <div>
         <div style={styles.smallLabel}>Hours</div>
@@ -569,8 +659,16 @@ function RequirementRow({ rank, data }) {
       </div>
       <div>
         <div style={styles.smallLabel}>FTD</div>
-        <div style={styles.strong}>{data.mustBeInFtd ? `Yes · ${data.minFtdJobs} job(s)` : "No"}</div>
+        <div style={styles.strong}>
+          {data.mustBeInFtd ? `Yes · ${data.minFtdJobs} activities` : "No"}
+        </div>
       </div>
+      {data.minMonthlyHours ? (
+      <div>
+        <div style={styles.smallLabel}>Monthly Hours</div>
+        <div style={styles.strong}>{data.minMonthlyHours}</div>
+      </div>
+      ) : null}
     </div>
   );
 }
@@ -582,6 +680,10 @@ export default function FibPromotionEvaluator() {
   const [employee, setEmployee] = useState(EMPTY_AGENT);
 
   const result = useMemo(() => evaluatePromotion(employee), [employee]);
+
+  useEffect(() => {
+    runSelfTests();
+  }, []);
 
   async function handleLookup() {
     setLoading(true);
@@ -672,6 +774,7 @@ export default function FibPromotionEvaluator() {
                 <StatPill label="TIR" value={employee.tir || 0} />
                 <StatPill label="In FTD" value={employee.inFtd ? "Yes" : "No"} />
                 <StatPill label="FTD Activities" value={employee.ftdJobs || 0} />
+                <StatPill label="Monthly Hours" value={employee.monthlyHours || 0} />
               </div>
             </div>
 
@@ -694,7 +797,9 @@ export default function FibPromotionEvaluator() {
                 </div>
               </div>
 
-              <div style={{ marginTop: "16px", fontSize: "14px", fontWeight: 600 }}>Requirement Summary</div>
+              <div style={{ marginTop: "16px", fontSize: "14px", fontWeight: 600 }}>
+                Requirement Summary
+              </div>
               {result.requirement ? (
                 <div style={{ ...styles.statsGrid, marginTop: "12px", marginBottom: 0 }}>
                   <StatPill label="Required Hours" value={result.requirement.minHours} />
@@ -704,6 +809,9 @@ export default function FibPromotionEvaluator() {
                     value={result.requirement.mustBeInFtd ? "Required" : "Not Required"}
                   />
                   <StatPill label="FTD Activities Needed" value={result.requirement.minFtdJobs} />
+                  {result.requirement.minMonthlyHours ? (
+                  <StatPill label="Monthly Hours Needed" value={result.requirement.minMonthlyHours} />
+                  ) : null}
                 </div>
               ) : (
                 <p style={styles.muted}>No requirement data available for this rank.</p>
@@ -743,6 +851,23 @@ export default function FibPromotionEvaluator() {
           ))}
         </div>
       </div>
+
+      <a
+        href="https://discord.com/users/640288455766704162"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.builtBy}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "scale(1.05)";
+          e.currentTarget.style.boxShadow = "0 8px 18px rgba(0,0,0,0.16)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "scale(1)";
+          e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.12)";
+        }}
+      >
+        Built by David V.
+      </a>
     </div>
   );
 }
