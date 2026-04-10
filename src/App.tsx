@@ -1,842 +1,624 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Download, BadgeInfo, Settings2 } from "lucide-react";
-import {
-  BADGE_LAYOUT,
-  templates,
-  SHEET_CSV_URL,
-  parseCsv,
-  findRosterEntryByDiscordId,
-  splitCallsign,
-  getTemplateFromRank,
-  clampText,
-} from "./lib/badge";
-import type { TemplateKey } from "./lib/badge";
+import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion";
+import { ShieldCheck, Search, User, CheckCircle2, XCircle, ArrowRight, ClipboardList } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
-type BuilderMode = "semiAutomatic" | "manual";
+const MAIN_SHEET_ID = "1R7SpirGzmgUzZK6_MwcH0LGAubwShjsaxxJG2fFDi5g";
+const MAIN_GID = "1598342668";
+const FTD_SHEET_ID = "1YaUUYYXVPOffZQr7L51SPaDscz7XA6foQImhFqbu5yk";
+const FTD_GID = "476091669";
 
-const fontMap = {
-  Block: '900 32px "Arial Black", Impact, sans-serif',
-  Roman: '700 31px Georgia, "Times New Roman", serif',
+const REQUIREMENTS = {
+  "Probationary Agent": {
+    nextRank: "Agent",
+    minHours: 0,
+    minTir: 0,
+    mustBeInFtd: false,
+    minFtdJobs: 0,
+  },
+  Agent: {
+    nextRank: "Senior Agent",
+    minHours: 5,
+    minTir: 7,
+    mustBeInFtd: false,
+    minFtdJobs: 0,
+  },
+  "Senior Agent": {
+    nextRank: "Special Agent",
+    minHours: 5,
+    minTir: 7,
+    mustBeInFtd: false,
+    minFtdJobs: 0,
+  },
+  "Special Agent": {
+    nextRank: "Senior Special Agent",
+    minHours: 5,
+    minTir: 7,
+    mustBeInFtd: false,
+    minFtdJobs: 0,
+  },
+  "Senior Special Agent": {
+    nextRank: "Supervisory Special Agent",
+    minHours: 5,
+    minTir: 14,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
+  "Supervisory Special Agent": {
+    nextRank: "Assistant Special Agent in Charge",
+    minHours: 5,
+    minTir: 14,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
+  "Assistant Special Agent in Charge": {
+    nextRank: "Special Agent in Charge",
+    minHours: 5,
+    minTir: 14,
+    mustBeInFtd: true,
+    minFtdJobs: 5,
+  },
+  "Special Agent in Charge": {
+    nextRank: "Senior Special Agent In Charge",
+    minHours: 5,
+    minTir: 14,
+    mustBeInFtd: true,
+    minFtdJobs: 6,
+  },
+  "Senior Special Agent In Charge": {
+    nextRank: "Agent Commander",
+    minHours: 5,
+    minTir: 21,
+    mustBeInFtd: true,
+    minFtdJobs: 6,
+  },
+  "Agent Commander": {
+    nextRank: "Section Commander",
+    minHours: 5,
+    minTir: 21,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
+  "Section Commander": {
+    nextRank: "Commander in Charge",
+    minHours: 5,
+    minTir: 21,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
+  "Commander in Charge": {
+    nextRank: "Command Specialist",
+    minHours: 5,
+    minTir: 21,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
+  "Command Specialist": {
+    nextRank: null,
+    minHours: 5,
+    minTir: 28,
+    mustBeInFtd: true,
+    minFtdJobs: 3,
+  },
 };
 
-function setCanvasFont(
-  ctx: CanvasRenderingContext2D,
-  fontType: keyof typeof fontMap | string,
-  weight: string,
-  size: number
-) {
-  const fontBase = fontMap[fontType as keyof typeof fontMap] || fontMap.Block;
-  ctx.font = fontBase.replace(/\d+px/, `${size}px`).replace(/^\d+/, weight);
+const RANKS = Object.keys(REQUIREMENTS);
+const DISPLAY_RANKS = RANKS.filter((rank) => rank !== "Probationary Agent");
+
+const EMPTY_AGENT = {
+  name: "",
+  rank: "",
+  hours: "",
+  tir: "",
+  inFtd: false,
+  ftdJobs: "",
+};
+
+function normalize(value) {
+  return String(value ?? "")
+    .replace(/\uFEFF/g, "")
+    .trim()
+    .toLowerCase();
 }
 
-function strokeAndFillLetterSpaced(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  spacing = 0
-) {
-  if (!text) return;
-
-  if (!spacing) {
-    ctx.strokeText(text, x, y);
-    ctx.fillText(text, x, y);
-    return;
-  }
-
-  const chars = text.split("");
-  const widths = chars.map((ch) => ctx.measureText(ch).width);
-  const totalWidth =
-    widths.reduce((sum, w) => sum + w, 0) + spacing * (chars.length - 1);
-  let cursor = x - totalWidth / 2;
-
-  chars.forEach((ch, index) => {
-    const drawX = cursor + widths[index] / 2;
-    ctx.strokeText(ch, drawX, y);
-    ctx.fillText(ch, drawX, y);
-    cursor += widths[index] + spacing;
-  });
+function cleanDiscordId(value) {
+  return String(value ?? "").replace(/\D/g, "").trim();
 }
 
-function drawStraightText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  config: (typeof BADGE_LAYOUT.lines)[string]
-) {
-  const rotation = config.rotation || 0;
-  ctx.save();
-  ctx.translate(config.x || 0, config.y || 0);
-  ctx.rotate(rotation);
-  strokeAndFillLetterSpaced(ctx, text, 0, 0, config.letterSpacing || 0);
-  ctx.restore();
-}
+function parseCsvLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
 
-type Point = [number, number];
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
 
-function catmullRomToBezier(points: Point[]) {
-  if (points.length < 2) return [];
-  const beziers: [Point, Point, Point, Point][] = [];
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] || points[i];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] || p2;
-
-    const cp1: Point = [
-      p1[0] + (p2[0] - p0[0]) / 6,
-      p1[1] + (p2[1] - p0[1]) / 6,
-    ];
-
-    const cp2: Point = [
-      p2[0] - (p3[0] - p1[0]) / 6,
-      p2[1] - (p3[1] - p1[1]) / 6,
-    ];
-
-    beziers.push([p1, cp1, cp2, p2]);
-  }
-
-  return beziers;
-}
-
-function cubicPoint(
-  p0: Point,
-  p1: Point,
-  p2: Point,
-  p3: Point,
-  t: number
-): Point {
-  const mt = 1 - t;
-  const x =
-    mt * mt * mt * p0[0] +
-    3 * mt * mt * t * p1[0] +
-    3 * mt * t * t * p2[0] +
-    t * t * t * p3[0];
-  const y =
-    mt * mt * mt * p0[1] +
-    3 * mt * mt * t * p1[1] +
-    3 * mt * t * t * p2[1] +
-    t * t * t * p3[1];
-  return [x, y];
-}
-
-function buildSmoothPathSamples(points: Point[], detailPerSegment = 40) {
-  const curves = catmullRomToBezier(points);
-  const samples: { x: number; y: number; length: number }[] = [];
-
-  let totalLength = 0;
-  let prev: Point | null = null;
-
-  curves.forEach(([p0, p1, p2, p3], curveIndex) => {
-    for (let i = 0; i <= detailPerSegment; i++) {
-      if (curveIndex > 0 && i === 0) continue;
-      const t = i / detailPerSegment;
-      const [x, y] = cubicPoint(p0, p1, p2, p3, t);
-
-      if (prev) {
-        totalLength += Math.hypot(x - prev[0], y - prev[1]);
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
       }
+      continue;
+    }
 
-      samples.push({ x, y, length: totalLength });
-      prev = [x, y];
+    if (char === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current);
+  return result.map((cell) => cell.trim());
+}
+
+function parseCsv(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .map(parseCsvLine);
+}
+
+async function fetchCsv(sheetId, gid) {
+  const urls = [
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
+    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
+  ];
+
+  let lastError = null;
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const text = await response.text();
+      if (!text.trim()) {
+        throw new Error("Empty sheet response");
+      }
+      return parseCsv(text);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Unable to read sheet");
+}
+
+function getHeaderMap(row) {
+  const map = {};
+  row.forEach((cell, index) => {
+    const key = normalize(cell);
+    if (key) {
+      map[key] = index;
     }
   });
-
-  return { samples, totalLength };
+  return map;
 }
 
-function getPointAtLength(
-  samples: { x: number; y: number; length: number }[],
-  targetLength: number
-) {
-  if (!samples.length) return { x: 0, y: 0, angle: 0 };
+function findMainRosterEmployee(rows, discordId) {
+  let headerMap = null;
 
-  if (targetLength <= 0) {
-    const a = Math.atan2(
-      (samples[1]?.y ?? 0) - samples[0].y,
-      (samples[1]?.x ?? 1) - samples[0].x
-    );
-    return { x: samples[0].x, y: samples[0].y, angle: a };
-  }
-
-  const last = samples[samples.length - 1];
-  if (targetLength >= last.length) {
-    const prev = samples[samples.length - 2] || last;
-    const a = Math.atan2(last.y - prev.y, last.x - prev.x);
-    return { x: last.x, y: last.y, angle: a };
-  }
-
-  for (let i = 1; i < samples.length; i++) {
-    const a = samples[i - 1];
-    const b = samples[i];
-
-    if (targetLength <= b.length) {
-      const segLen = b.length - a.length || 1;
-      const t = (targetLength - a.length) / segLen;
-      const x = a.x + (b.x - a.x) * t;
-      const y = a.y + (b.y - a.y) * t;
-      const angle = Math.atan2(b.y - a.y, b.x - a.x);
-      return { x, y, angle };
-    }
-  }
-
-  return { x: last.x, y: last.y, angle: 0 };
-}
-
-function getTextAdvance(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  letterSpacing = 0
-) {
-  const chars = text.split("");
-  const widths = chars.map((ch) => ctx.measureText(ch).width);
-  const totalWidth =
-    widths.reduce((sum, w) => sum + w, 0) +
-    letterSpacing * Math.max(0, chars.length - 1);
-  return { widths, totalWidth };
-}
-
-function fitPathFontSize(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  config: (typeof BADGE_LAYOUT.lines)[string],
-  fontType: string,
-  baseSize: number,
-  key?: string
-) {
-  if (!config.points || config.points.length < 2) return baseSize;
-
-  const { totalLength } = buildSmoothPathSamples(config.points, 40);
-
-  let usableLength = totalLength * 0.9;
-  let minSize = 20;
-
-  if (key === "line2") {
-    usableLength = totalLength * 0.94;
-    minSize = 18;
-  }
-
-  if (key === "line5") {
-    usableLength = totalLength * 0.84;
-    minSize = 18;
-  }
-
-  let size = baseSize;
-
-  for (let i = 0; i < 40; i++) {
-    setCanvasFont(ctx, fontType, config.weight, size);
-    const { totalWidth } = getTextAdvance(ctx, text, config.letterSpacing || 0);
-
-    if (totalWidth <= usableLength) {
-      return size;
+  for (const row of rows) {
+    const normalizedRow = row.map(normalize);
+    if (normalizedRow.includes("rank") && normalizedRow.includes("discord id")) {
+      headerMap = getHeaderMap(row);
+      continue;
     }
 
-    size -= 1;
-    if (size <= minSize) return minSize;
+    if (!headerMap) continue;
+
+    const discordIdx = headerMap["discord id"];
+    const rankIdx = headerMap["rank"];
+    const hoursIdx = headerMap["hours"];
+    const tirIdx = headerMap["time in rank"];
+    const nameIdx = headerMap["name"];
+
+    if ([discordIdx, rankIdx, hoursIdx, tirIdx, nameIdx].some((idx) => idx === undefined)) {
+      continue;
+    }
+
+    const rowDiscordId = cleanDiscordId(row[discordIdx]);
+    if (!rowDiscordId || rowDiscordId !== discordId) continue;
+
+    return {
+      name: row[nameIdx] || "",
+      rank: row[rankIdx] || "",
+      hours: row[hoursIdx] || 0,
+      tir: row[tirIdx] || 0,
+    };
   }
 
-  return Math.max(minSize, size);
+  return null;
 }
 
-function drawSmoothPathText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  config: (typeof BADGE_LAYOUT.lines)[string],
-  fontType: string,
-  key?: string
-) {
-  if (!text || !config.points || config.points.length < 2) return;
+function findFtdEmployee(rows, discordId) {
+  let headerMap = null;
 
-  const fontSize = fitPathFontSize(
-    ctx,
-    text,
-    config,
-    fontType,
-    config.fontSize,
-    key
-  );
-  setCanvasFont(ctx, fontType, config.weight, fontSize);
+  for (const row of rows) {
+    const normalizedRow = row.map(normalize);
+    if (normalizedRow.includes("discord id") && (normalizedRow.includes("activities") || normalizedRow.includes("total logs"))) {
+      headerMap = getHeaderMap(row);
+      continue;
+    }
 
-  const { widths, totalWidth } = getTextAdvance(
-    ctx,
-    text,
-    config.letterSpacing || 0
-  );
-  const { samples, totalLength } = buildSmoothPathSamples(config.points, 50);
+    if (!headerMap) continue;
 
-  if (!samples.length || totalLength <= 0) return;
+    const discordIdx = headerMap["discord id"];
+    const activitiesIdx = headerMap["activities"] ?? headerMap["total logs"];
 
-  const startOffset = Math.max(0, (totalLength - totalWidth) / 2);
-  let cursor = startOffset;
+    if (discordIdx === undefined || activitiesIdx === undefined) {
+      continue;
+    }
 
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    const charWidth = widths[i];
-    const centerAt = cursor + charWidth / 2;
+    const rowDiscordId = cleanDiscordId(row[discordIdx]);
+    if (!rowDiscordId || rowDiscordId !== discordId) continue;
 
-    const { x, y, angle } = getPointAtLength(samples, centerAt);
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.strokeText(ch, 0, 0);
-    ctx.fillText(ch, 0, 0);
-    ctx.restore();
-
-    cursor += charWidth + (config.letterSpacing || 0);
+    return {
+      inFtd: true,
+      ftdJobs: row[activitiesIdx] || 0,
+    };
   }
-}
 
-function buildInitialState(templateKey: keyof typeof templates) {
-  const defaults = templates[templateKey].defaults;
   return {
-    size: defaults.size,
-    finish: defaults.finish,
-    fontType: defaults.fontType,
-    enamelColor: defaults.enamelColor,
-    enamelType: defaults.enamelType,
-    line1: defaults.line1,
-    line2: defaults.line2,
-    line3: defaults.line3,
-    line4: defaults.line4,
-    line5: defaults.line5,
-    line6: defaults.line6,
+    inFtd: false,
+    ftdJobs: 0,
   };
 }
 
-function makeEmptyImages() {
+async function fetchRosterData(discordId) {
+  const cleanId = cleanDiscordId(discordId);
+
+  if (!cleanId) {
+    return { ok: false, error: "Enter a valid Discord ID first." };
+  }
+
+  try {
+    const [mainRows, ftdRows] = await Promise.all([
+      fetchCsv(MAIN_SHEET_ID, MAIN_GID),
+      fetchCsv(FTD_SHEET_ID, FTD_GID),
+    ]);
+
+    const mainEmployee = findMainRosterEmployee(mainRows, cleanId);
+    if (!mainEmployee) {
+      return { ok: false, error: "Employee not found in the main roster." };
+    }
+
+    const ftdEmployee = findFtdEmployee(ftdRows, cleanId);
+
+    return {
+      ok: true,
+      employee: {
+        ...mainEmployee,
+        inFtd: Boolean(ftdEmployee?.inFtd),
+        ftdJobs: Number(ftdEmployee?.ftdJobs || 0),
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: "Could not read one or both Google Sheets. Make sure the sheets are publicly viewable and exportable.",
+    };
+  }
+}
+
+function evaluatePromotion(agent) {
+  if (!agent?.rank || !REQUIREMENTS[agent.rank]) {
+    return {
+      eligible: false,
+      nextRank: null,
+      missing: agent?.rank ? ["Unknown or unsupported rank"] : ["No employee data loaded"],
+      requirement: null,
+    };
+  }
+
+  const requirement = REQUIREMENTS[agent.rank];
+  const hours = Number(agent.hours || 0);
+  const tir = Number(agent.tir || 0);
+  const ftdJobs = Number(agent.ftdJobs || 0);
+  const missing = [];
+
+  if (hours < requirement.minHours) {
+    missing.push(`${requirement.minHours - hours} more hour(s)`);
+  }
+
+  if (tir < requirement.minTir) {
+    missing.push(`${requirement.minTir - tir} more TIR day(s)`);
+  }
+
+  if (requirement.mustBeInFtd && !agent.inFtd) {
+    missing.push("Must be in FTD");
+  }
+
+  if (ftdJobs < requirement.minFtdJobs) {
+    missing.push(`${requirement.minFtdJobs - ftdJobs} more FTD job(s)`);
+  }
+
+  if (!requirement.nextRank) {
+    return {
+      eligible: false,
+      nextRank: null,
+      missing: ["Top rank reached"],
+      requirement,
+    };
+  }
+
   return {
-    patrolAgent: null as HTMLImageElement | null,
-    command: null as HTMLImageElement | null,
-    trialLowCommand: null as HTMLImageElement | null,
-    supervisor: null as HTMLImageElement | null,
-    trialSupervisor: null as HTMLImageElement | null,
+    eligible: missing.length === 0,
+    nextRank: requirement.nextRank,
+    missing,
+    requirement,
   };
 }
 
-function Card({
-  className = "",
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return <div className={`bg-white ${className}`}>{children}</div>;
-}
-
-function CardContent({
-  className = "",
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return <div className={className}>{children}</div>;
-}
-
-function Button({
-  className = "",
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+function StatPill({ label, value }) {
   return (
-    <button
-      className={`bg-zinc-900 px-4 py-3 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
-      {...props}
-    >
-      {children}
-    </button>
+    <div className="rounded-2xl border bg-background/70 p-4 shadow-sm">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+    </div>
   );
 }
 
-function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+function RequirementRow({ rank, data }) {
   return (
-    <input
-      {...props}
-      className={`w-full border border-zinc-300 px-3 py-2 outline-none focus:border-zinc-500 ${props.className || ""}`}
-    />
+    <div className="grid grid-cols-1 gap-3 rounded-2xl border p-4 md:grid-cols-5">
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">Rank</div>
+        <div className="font-semibold">{rank}</div>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">Next Rank</div>
+        <div className="font-medium">{data.nextRank ?? "Top Rank"}</div>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">Hours</div>
+        <div className="font-medium">{data.minHours}</div>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">TIR</div>
+        <div className="font-medium">{data.minTir} days</div>
+      </div>
+      <div>
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">FTD</div>
+        <div className="font-medium">{data.mustBeInFtd ? `Yes · ${data.minFtdJobs} job(s)` : "No"}</div>
+      </div>
+    </div>
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <label className="text-sm font-medium text-zinc-700">{children}</label>;
-}
-
-function Separator() {
-  return <div className="h-px w-full bg-zinc-200" />;
-}
-
-function Select({
-  value,
-  onValueChange,
-  children,
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onValueChange(e.target.value)}
-      className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none focus:border-zinc-500"
-    >
-      {children}
-    </select>
-  );
-}
-
-function SelectItem({
-  value,
-  children,
-}: {
-  value: string;
-  children: React.ReactNode;
-}) {
-  return <option value={value}>{children}</option>;
-}
-
-export default function App() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [mode, setMode] = useState<BuilderMode>("semiAutomatic");
-  const [templateKey, setTemplateKey] = useState<TemplateKey>("command");
-  const [form, setForm] = useState(buildInitialState("command"));
-  const [templateImages, setTemplateImages] = useState(makeEmptyImages());
+export default function FibPromotionEvaluator() {
   const [discordId, setDiscordId] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [lookupError, setLookupError] = useState("");
-  const [lookupSuccess, setLookupSuccess] = useState("");
-  const template = templates[templateKey];
+  const [employee, setEmployee] = useState(EMPTY_AGENT);
 
-  const previewList = useMemo(() => Object.values(templates), []);
-  const currentImage = templateImages[templateKey];
-  const isSemiAutomatic = mode === "semiAutomatic";
+  const result = useMemo(() => evaluatePromotion(employee), [employee]);
 
-  useEffect(() => {
-    const entries = Object.entries(templates) as [
-      keyof typeof templates,
-      (typeof templates)[keyof typeof templates]
-    ][];
-
-    entries.forEach(([key, tpl]) => {
-      const img = new Image();
-      img.onload = () => {
-        setTemplateImages((prev) => ({ ...prev, [key]: img }));
-      };
-      img.src = tpl.imagePath;
-    });
-  }, []);
-
-  useEffect(() => {
-    drawBadge();
-  }, [form, templateKey, templateImages]);
-
-  function applyTemplateDefaults(nextTemplateKey: TemplateKey, preserveLines = true) {
-    const defaults = templates[nextTemplateKey].defaults;
-
-    setTemplateKey(nextTemplateKey);
-    setForm((prev) => ({
-      ...prev,
-      size: defaults.size,
-      finish: defaults.finish,
-      fontType: defaults.fontType,
-      enamelColor: defaults.enamelColor,
-      enamelType: defaults.enamelType,
-      line1: "FIB",
-      line2: preserveLines ? prev.line2 : defaults.line2,
-      line3: preserveLines ? prev.line3 : defaults.line3,
-      line4: preserveLines ? prev.line4 : defaults.line4,
-      line5: preserveLines ? prev.line5 : defaults.line5,
-      line6: preserveLines ? prev.line6 : defaults.line6,
-    }));
-  }
-
-  function setField(key: string, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function getTextColor() {
-    return "#1a1a1a";
-  }
-
-  function getShadowColor() {
-    if (
-      form.finish.includes("Nickel") ||
-      form.finish.includes("Silver") ||
-      form.finish.includes("Sil-Ray")
-    ) {
-      return "rgba(255,255,255,0.92)";
-    }
-    return "rgba(255,245,210,0.95)";
-  }
-
-  function drawBadge() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (!currentImage) return;
-
-    ctx.drawImage(currentImage, 0, 0, BADGE_LAYOUT.width, BADGE_LAYOUT.height);
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = getTextColor();
-    ctx.strokeStyle = getShadowColor();
-    ctx.lineWidth = 3.5;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.miterLimit = 2;
-
-    Object.entries(BADGE_LAYOUT.lines).forEach(([key, config]) => {
-      const text = clampText(form[key as keyof typeof form] || "", config.maxLen);
-      if (!text) return;
-
-      if (config.type === "straight") {
-        setCanvasFont(ctx, form.fontType, config.weight, config.fontSize);
-        drawStraightText(ctx, text, config);
-      } else if (config.type === "path") {
-        drawSmoothPathText(ctx, text, config, form.fontType, key);
-      }
-    });
-  }
-
-  async function fetchBadgeDetails() {
-    const cleanDiscordId = discordId.replace(/\D/g, "");
-
+  async function handleLookup() {
+    setLoading(true);
     setLookupError("");
-    setLookupSuccess("");
 
-    if (!cleanDiscordId) {
-      setLookupError("Please enter a valid Discord ID.");
+    const resultData = await fetchRosterData(discordId);
+
+    if (!resultData.ok || !resultData.employee) {
+      setEmployee(EMPTY_AGENT);
+      setLookupError(resultData.error || "Lookup failed.");
+      setLoading(false);
       return;
     }
 
-    try {
-      setLookupLoading(true);
-
-      const response = await fetch(SHEET_CSV_URL, {
-        method: "GET",
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to fetch roster data.");
-      }
-
-      const csvText = await response.text();
-      const rows = parseCsv(csvText);
-      const match = findRosterEntryByDiscordId(rows, cleanDiscordId);
-
-      if (!match) {
-        setLookupError("No badge details were found for that Discord ID.");
-        return;
-      }
-
-      const nextTemplate = getTemplateFromRank(match.rank);
-      const callsignParts = splitCallsign(match.callsign);
-
-      setTemplateKey(nextTemplate);
-      setForm((prev) => ({
-        ...prev,
-        size: templates[nextTemplate].defaults.size,
-        finish: templates[nextTemplate].defaults.finish,
-        fontType: templates[nextTemplate].defaults.fontType,
-        enamelColor: templates[nextTemplate].defaults.enamelColor,
-        enamelType: templates[nextTemplate].defaults.enamelType,
-        line1: "FIB",
-        line2: match.rank,
-        line3: callsignParts.first,
-        line4: callsignParts.second,
-        line5: match.name,
-        line6: match.badgeNumber,
-      }));
-
-      setLookupSuccess(`Badge details loaded for ${match.name || "this roster entry"}.`);
-    } catch (error) {
-      console.error(error);
-      setLookupError("There was a problem fetching the roster data.");
-    } finally {
-      setLookupLoading(false);
-    }
+    setEmployee(resultData.employee);
+    setLoading(false);
   }
-
-  function clearBadgeDetails() {
-    setLookupError("");
-    setLookupSuccess("");
-    setDiscordId("");
-    setTemplateKey("command");
-    setForm(buildInitialState("command"));
-  }
-
-  function downloadBadge() {
-    if (!currentImage || !canvasRef.current) return;
-    const link = document.createElement("a");
-    link.href = canvasRef.current.toDataURL("image/png", 1.0);
-    link.download = `${template.name.replace(/\s+/g, "-").toLowerCase()}-badge.png`;
-    link.click();
-  }
-
-  const subtitle =
-    mode === "manual"
-      ? "Choose a badge template and generate badges directly on the website."
-      : "Enter your Discord ID to fetch your badge details automatically.";
 
   return (
-    <div className="min-h-screen bg-zinc-100 p-4 md:p-6">
-      <div
-        className={`mx-auto grid max-w-7xl gap-6 ${
-          isSemiAutomatic
-            ? "xl:grid-cols-[340px_minmax(0,1fr)]"
-            : "xl:grid-cols-[380px_minmax(0,1fr)]"
-        }`}
-      >
-        <Card className={`rounded-3xl border-0 shadow-xl ${isSemiAutomatic ? "self-start" : ""}`}>
-          <CardContent className={`space-y-6 ${isSemiAutomatic ? "p-4" : "p-5"}`}>
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-zinc-900 p-2 text-white">
-                <BadgeInfo className="h-5 w-5" />
+    <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/40 p-4 md:p-8">
+      <div className="mx-auto grid max-w-7xl gap-6">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+          className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]"
+        >
+          <Card className="rounded-3xl border shadow-xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border p-3">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl md:text-3xl">FIB Promotion Evaluator</CardTitle>
+                  <CardDescription>
+                    Live Discord ID lookup using your public main roster and FTD roster.
+                  </CardDescription>
+                </div>
               </div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">Badge Builder</h1>
-                <p className="text-sm text-zinc-500">{subtitle}</p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2">
+                <StatPill label="Ranks Supported" value={DISPLAY_RANKS.length} />
+                <StatPill label="Lookup Source" value="Google Sheets" />
               </div>
-            </div>
 
-            <div className="grid gap-2">
-              <Label>Build Mode</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMode("semiAutomatic")}
-                  className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                    mode === "semiAutomatic"
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-md"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
-                  }`}
-                >
-                  Auto-Fill from Discord ID
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setMode("manual")}
-                  className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-                    mode === "manual"
-                      ? "border-zinc-900 bg-zinc-900 text-white shadow-md"
-                      : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
-                  }`}
-                >
-                  Manual Badge Setup
-                </button>
-              </div>
-            </div>
-
-            <Separator />
-
-            {isSemiAutomatic ? (
-              <div className="grid gap-2">
-                <Label>Discord ID</Label>
-                <Input
-                  value={discordId}
-                  inputMode="numeric"
-                  placeholder="Enter your Discord ID to load your badge details"
-                  onChange={(e) => setDiscordId(e.target.value.replace(/[^\d]/g, ""))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      fetchBadgeDetails();
-                    }
-                  }}
-                  className="rounded-xl"
-                />
-
-                <div className="grid gap-2">
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      onClick={fetchBadgeDetails}
-                      disabled={lookupLoading}
-                      className="w-full rounded-2xl"
-                    >
-                      {lookupLoading ? "Loading Badge Details..." : "Load Badge Details"}
-                    </Button>
-
-                    <Button
-                      type="button"
-                      onClick={clearBadgeDetails}
-                      className="w-full rounded-2xl bg-zinc-700 hover:bg-zinc-600"
-                    >
-                      Clear Form
-                    </Button>
-                  </div>
-
-                  <Button
-                    type="button"
-                    onClick={downloadBadge}
-                    className="w-full rounded-2xl"
-                    disabled={!currentImage}
-                  >
-                    <Download className="mr-2 inline h-4 w-4" />
-                    Download Badge
+              <div className="space-y-2">
+                <Label htmlFor="discordId">Discord ID</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="discordId"
+                    placeholder="Enter Discord ID"
+                    value={discordId}
+                    onChange={(e) => setDiscordId(e.target.value)}
+                  />
+                  <Button className="rounded-2xl" onClick={handleLookup} disabled={loading}>
+                    <Search className="mr-2 h-4 w-4" />
+                    {loading ? "Checking" : "Check"}
                   </Button>
                 </div>
-
+                <p className="text-sm text-muted-foreground">
+                  The page starts blank and only fills after a Discord ID lookup.
+                </p>
                 {lookupError ? (
-                  <p className="text-sm font-medium text-red-600">{lookupError}</p>
+                  <p className="text-sm font-medium text-destructive">{lookupError}</p>
                 ) : null}
-
-                {lookupSuccess ? (
-                  <p className="text-sm font-medium text-emerald-600">{lookupSuccess}</p>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="grid gap-2">
-                  <Label>Badge Template</Label>
-                  <Select
-                    value={templateKey}
-                    onValueChange={(value) =>
-                      applyTemplateDefaults(value as TemplateKey, true)
-                    }
-                  >
-                    {previewList.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  <p className="text-xs text-zinc-500">
-                    Select a badge template and enter the engraving details manually.
-                  </p>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-zinc-700">
-                    <Settings2 className="h-4 w-4" />
-                    Engraving Lines
-                  </div>
-
-                  {Object.entries(BADGE_LAYOUT.lines).map(([key, cfg]) => (
-                    <div key={key} className="grid gap-2">
-                      <Label>{cfg.label}</Label>
-                      <Input
-                        className={`rounded-xl ${cfg.fixed ? "bg-zinc-50" : ""}`}
-                        value={form[key as keyof typeof form]}
-                        maxLength={cfg.maxLen}
-                        readOnly={cfg.fixed}
-                        onChange={(e) => {
-                          if (cfg.fixed) return;
-                          setField(key, e.target.value.toUpperCase());
-                        }}
-                        placeholder={cfg.label}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <Button
-                  onClick={downloadBadge}
-                  className="w-full rounded-2xl"
-                  disabled={!currentImage}
-                >
-                  <Download className="mr-2 inline h-4 w-4" />
-                  Download Badge
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6">
-          <Card className="rounded-3xl border-0 shadow-xl">
-            <CardContent className="p-0">
-              <div className="border-b border-zinc-200 px-6 py-4">
-                <h2 className="text-lg font-semibold">Live Preview</h2>
-              </div>
-
-              <div className="grid place-items-center bg-[radial-gradient(circle_at_top,_#ffffff,_#e4e4e7)] p-6 md:p-10">
-                <div className="rounded-[32px] bg-white/70 p-4 shadow-2xl backdrop-blur">
-                  {currentImage ? (
-                    <canvas
-                      ref={canvasRef}
-                      width={BADGE_LAYOUT.width}
-                      height={BADGE_LAYOUT.height}
-                      className="h-auto w-full max-w-[700px] rounded-2xl"
-                    />
-                  ) : (
-                    <div className="grid h-[640px] w-[520px] place-items-center rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-400">
-                      Template image not found for {template.name}. Check the file path in /public/badges/.
-                    </div>
-                  )}
-                </div>
               </div>
             </CardContent>
           </Card>
 
-          {!isSemiAutomatic ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {previewList.map((item) => {
-                const hasImage = Boolean(
-                  templateImages[item.id as keyof typeof templateImages]
-                );
+          <Card className="rounded-3xl border shadow-xl">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border p-3">
+                  <User className="h-6 w-6" />
+                </div>
+                <div>
+                  <CardTitle>Evaluation Result</CardTitle>
+                  <CardDescription>
+                    Rank, hours, TIR, FTD status, and promotion eligibility.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-2xl border p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-muted-foreground">Employee</div>
+                    <div className="text-xl font-semibold">{employee.name || "No employee loaded"}</div>
+                  </div>
+                  <Badge variant="secondary" className="rounded-xl px-3 py-1 text-sm">
+                    {employee.rank || "No rank"}
+                  </Badge>
+                </div>
 
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => applyTemplateDefaults(item.id as TemplateKey, true)}
-                    className={`rounded-3xl border bg-white p-4 text-left shadow-sm transition hover:shadow-lg ${
-                      templateKey === item.id
-                        ? "border-zinc-900 ring-2 ring-zinc-900/10"
-                        : "border-zinc-200"
-                    }`}
-                  >
-                    <div className="mb-3 flex items-center justify-between text-sm font-semibold text-zinc-900">
-                      <span>{item.name}</span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] ${
-                          hasImage
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-zinc-100 text-zinc-500"
-                        }`}
-                      >
-                        {hasImage ? "Ready" : "Missing"}
-                      </span>
+                <Separator className="my-4" />
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <StatPill label="Hours" value={employee.hours || 0} />
+                  <StatPill label="TIR" value={employee.tir || 0} />
+                  <StatPill label="In FTD" value={employee.inFtd ? "Yes" : "No"} />
+                  <StatPill label="FTD Jobs" value={employee.ftdJobs || 0} />
+                </div>
+              </div>
+
+              <motion.div
+                key={`${employee.rank}-${employee.hours}-${employee.tir}-${employee.ftdJobs}-${employee.inFtd}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border p-5"
+              >
+                <div className="flex items-center gap-3">
+                  {result.eligible ? <CheckCircle2 className="h-6 w-6" /> : <XCircle className="h-6 w-6" />}
+                  <div>
+                    <div className="text-lg font-semibold">
+                      {result.eligible ? "Eligible for Promotion" : "Not Yet Eligible"}
                     </div>
-
-                    <div className="grid h-44 place-items-center rounded-2xl bg-zinc-100 p-3">
-                      {hasImage ? (
-                        <img
-                          src={templateImages[item.id as keyof typeof templateImages]?.src}
-                          alt={item.name}
-                          className="h-40 w-auto object-contain"
-                        />
+                    <div className="text-sm text-muted-foreground">
+                      {result.nextRank ? (
+                        <span className="inline-flex items-center gap-2">
+                          {employee.rank || "No rank"} <ArrowRight className="h-4 w-4" /> {result.nextRank}
+                        </span>
                       ) : (
-                        <div className="text-center text-xs text-zinc-400">
-                          No template image found
-                        </div>
+                        "No further promotion rank configured"
                       )}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  <div className="text-sm font-medium">Requirement Summary</div>
+                  {result.requirement ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <StatPill label="Required Hours" value={result.requirement.minHours} />
+                      <StatPill label="Required TIR" value={result.requirement.minTir} />
+                      <StatPill
+                        label="FTD Membership"
+                        value={result.requirement.mustBeInFtd ? "Required" : "Not Required"}
+                      />
+                      <StatPill label="FTD Jobs Needed" value={result.requirement.minFtdJobs} />
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">No requirement data available for this rank.</div>
+                  )}
+                </div>
+
+                {!result.eligible && result.missing.length > 0 ? (
+                  <div className="mt-5 rounded-2xl border border-dashed p-4">
+                    <div className="mb-2 text-sm font-medium">Still Missing</div>
+                    <div className="flex flex-wrap gap-2">
+                      {result.missing.map((item) => (
+                        <Badge key={item} variant="outline" className="rounded-xl px-3 py-1">
+                          {item}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </motion.div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
+          <Card className="rounded-3xl border shadow-lg">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border p-3">
+                  <ClipboardList className="h-6 w-6" />
+                </div>
+                <div>
+                  <CardTitle>Rank Requirements</CardTitle>
+                  <CardDescription>
+                    Probationary Agent is excluded from the public website list like you asked.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {DISPLAY_RANKS.map((rank) => (
+                <RequirementRow key={rank} rank={rank} data={REQUIREMENTS[rank]} />
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-3xl border shadow-lg">
+            <CardHeader>
+              <CardTitle>Live Sheet Notes</CardTitle>
+              <CardDescription>
+                This version reads directly from the two public sheet links you shared.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-muted-foreground">
+              <div className="rounded-2xl border p-4">
+                <div className="font-medium text-foreground">Main roster</div>
+                <p className="mt-1">Used for name, rank, time in rank, hours, and Discord ID matching.</p>
+              </div>
+              <div className="rounded-2xl border p-4">
+                <div className="font-medium text-foreground">FTD roster</div>
+                <p className="mt-1">Used for FTD membership and activity count by Discord ID.</p>
+              </div>
+              <div className="rounded-2xl border p-4">
+                <div className="font-medium text-foreground">If lookups still fail</div>
+                <p className="mt-1">
+                  The most common reason is Google blocking CSV export access in the browser. In that case, the next step is moving the same sheet-reading logic into a Vercel API route.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
-
-      <a
-        href="https://discord.com/users/640288455766704162"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-4 right-4 rounded-lg bg-gradient-to-r from-white to-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700 shadow-md transition hover:scale-105 hover:shadow-lg"
-      >
-        Built by David V.
-      </a>
     </div>
   );
 }
