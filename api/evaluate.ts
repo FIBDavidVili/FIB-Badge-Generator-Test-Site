@@ -9,7 +9,10 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method !== "GET") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+    return res.status(405).json({
+      ok: false,
+      message: "❌ Method not allowed",
+    });
   }
 
   const MAIN_SHEET_ID = "1R7SpirGzmgUzZK6_MwcH0LGAubwShjsaxxJG2fFDi5g";
@@ -19,20 +22,79 @@ export default async function handler(req: any, res: any) {
   const HOURS_MANAGER_GID = "264837711";
 
   const REQUIREMENTS: any = {
-    "Agent": { nextRank: "Senior Agent", minHours: 5, minTir: 7 },
+    Agent: { nextRank: "Senior Agent", minHours: 5, minTir: 7 },
     "Senior Agent": { nextRank: "Special Agent", minHours: 5, minTir: 7 },
     "Special Agent": { nextRank: "Senior Special Agent", minHours: 5, minTir: 7 },
-    "Senior Special Agent": { nextRank: "Supervisory Special Agent", minHours: 5, minTir: 14, mustBeInFtd: true, minFtdJobs: 3 },
+    "Senior Special Agent": {
+      nextRank: "Supervisory Special Agent",
+      minHours: 5,
+      minTir: 14,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+    },
 
-    "Supervisory Special Agent": { nextRank: "Assistant Special Agent in Charge", minHours: 5, minTir: 14, mustBeInFtd: true, minFtdJobs: 3 },
-    "Assistant Special Agent in Charge": { nextRank: "Special Agent in Charge", minHours: 5, minTir: 14, mustBeInFtd: true, minFtdJobs: 5 },
-    "Special Agent in Charge": { nextRank: "Senior Special Agent In Charge", minHours: 5, minTir: 14, mustBeInFtd: true, minFtdJobs: 6 },
+    "Supervisory Special Agent": {
+      nextRank: "Assistant Special Agent in Charge",
+      minHours: 5,
+      minTir: 14,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+    },
+    "Assistant Special Agent in Charge": {
+      nextRank: "Special Agent in Charge",
+      minHours: 5,
+      minTir: 14,
+      mustBeInFtd: true,
+      minFtdJobs: 5,
+    },
+    "Special Agent in Charge": {
+      nextRank: "Senior Special Agent In Charge",
+      minHours: 5,
+      minTir: 14,
+      mustBeInFtd: true,
+      minFtdJobs: 6,
+    },
 
-    "Senior Special Agent In Charge": { nextRank: "Agent Commander", minHours: 5, minTir: 21, mustBeInFtd: true, minFtdJobs: 6, minMonthlyHours: 25 },
-    "Agent Commander": { nextRank: "Section Commander", minHours: 5, minTir: 21, mustBeInFtd: true, minFtdJobs: 3, minMonthlyHours: 25 },
-    "Section Commander": { nextRank: "Commander in Charge", minHours: 5, minTir: 21, mustBeInFtd: true, minFtdJobs: 3, minMonthlyHours: 25 },
-    "Commander in Charge": { nextRank: "Command Specialist", minHours: 5, minTir: 21, mustBeInFtd: true, minFtdJobs: 3, minMonthlyHours: 25 },
-    "Command Specialist": { nextRank: null, minHours: 5, minTir: 28, mustBeInFtd: true, minFtdJobs: 3, minMonthlyHours: 30 },
+    "Senior Special Agent In Charge": {
+      nextRank: "Agent Commander",
+      minHours: 5,
+      minTir: 21,
+      mustBeInFtd: true,
+      minFtdJobs: 6,
+      minMonthlyHours: 25,
+    },
+    "Agent Commander": {
+      nextRank: "Section Commander",
+      minHours: 5,
+      minTir: 21,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+      minMonthlyHours: 25,
+    },
+    "Section Commander": {
+      nextRank: "Commander in Charge",
+      minHours: 5,
+      minTir: 21,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+      minMonthlyHours: 25,
+    },
+    "Commander in Charge": {
+      nextRank: "Command Specialist",
+      minHours: 5,
+      minTir: 21,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+      minMonthlyHours: 25,
+    },
+    "Command Specialist": {
+      nextRank: null,
+      minHours: 5,
+      minTir: 28,
+      mustBeInFtd: true,
+      minFtdJobs: 3,
+      minMonthlyHours: 30,
+    },
   };
 
   function cleanId(id: any) {
@@ -40,20 +102,31 @@ export default async function handler(req: any, res: any) {
   }
 
   function parseCSV(text: string) {
-    return text.split("\n").map(line => line.split(","));
+    return text
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.split(","));
   }
 
   async function fetchSheet(sheetId: string, gid: string) {
     const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-    const res = await fetch(url);
-    const text = await res.text();
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch sheet");
+    }
+
+    const text = await response.text();
     return parseCSV(text);
   }
 
   const discordId = cleanId(req.query.discordId);
 
   if (!discordId) {
-    return res.status(400).json({ ok: false, error: "No Discord ID provided" });
+    return res.status(400).json({
+      ok: false,
+      message: "❌ No Discord ID provided",
+    });
   }
 
   try {
@@ -74,11 +147,15 @@ export default async function handler(req: any, res: any) {
           hours: Number(row[9] || 0),
           tir: Number(row[8] || 0),
         };
+        break;
       }
     }
 
     if (!employee) {
-      return res.status(404).json({ ok: false, error: "User not found" });
+      return res.status(404).json({
+        ok: false,
+        message: "❌ User not found",
+      });
     }
 
     // 🔍 FTD
@@ -89,6 +166,7 @@ export default async function handler(req: any, res: any) {
       if (cleanId(row[2]) === discordId) {
         ftdActivities = Number(row[5] || 0);
         inFtd = true;
+        break;
       }
     }
 
@@ -98,16 +176,20 @@ export default async function handler(req: any, res: any) {
     for (const row of hours) {
       if (cleanId(row[5]) === discordId) {
         monthlyHours = Number(row[6] || 0);
+        break;
       }
     }
 
     const reqData = REQUIREMENTS[employee.rank];
 
     if (!reqData) {
-      return res.status(400).json({ ok: false, error: "Unsupported rank" });
+      return res.status(400).json({
+        ok: false,
+        message: "❌ Unsupported rank",
+      });
     }
 
-    const missing = [];
+    const missing: string[] = [];
 
     if (employee.hours < (reqData.minHours || 0)) {
       missing.push("Hours");
@@ -129,24 +211,45 @@ export default async function handler(req: any, res: any) {
       missing.push("Monthly Hours");
     }
 
+    const status = missing.length === 0 ? "✅ Eligible" : "❌ Not Eligible";
+    const nextRank = reqData.nextRank || "High Command";
+    const missingText = missing.length === 0 ? "None" : missing.join(", ");
+
+    const message =
+`🕵️ **FIB Promotion Evaluation**
+
+**Name:** ${employee.name}
+**Rank:** ${employee.rank}
+**Next Rank:** ${nextRank}
+
+**Status:** ${status}
+
+**Hours:** ${employee.hours}
+**TIR:** ${employee.tir}
+**FTD:** ${inFtd ? "Yes" : "No"}
+**FTD Activities:** ${ftdActivities}
+**Monthly Hours:** ${monthlyHours}
+
+**Missing:** ${missingText}`;
+
     return res.status(200).json({
       ok: true,
+      message,
       name: employee.name,
       rank: employee.rank,
-      nextRank: reqData.nextRank || "High Command",
+      nextRank,
       eligible: missing.length === 0,
-      missing,
+      missing: missingText,
       hours: employee.hours,
       tir: employee.tir,
-      ftd: inFtd,
+      ftd: inFtd ? "Yes" : "No",
       ftdActivities,
       monthlyHours,
     });
-
   } catch (e) {
     return res.status(500).json({
       ok: false,
-      error: "Failed to fetch data",
+      message: "❌ Failed to fetch data",
     });
   }
 }
