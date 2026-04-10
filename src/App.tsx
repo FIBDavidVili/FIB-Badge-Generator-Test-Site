@@ -683,6 +683,7 @@ export default function FibPromotionEvaluator() {
 
   useEffect(() => {
     runSelfTests();
+    document.title = "FIB Promotion Evaluator";
   }, []);
 
   async function handleLookup() {
@@ -714,7 +715,7 @@ export default function FibPromotionEvaluator() {
               <div>
                 <h1 style={styles.title}>FIB Promotion Evaluator</h1>
                 <p style={styles.subtitle}>
-                  Live Discord ID lookup using your public main roster and FTD roster.
+                  Check if an agent meets all requirements for promotion based on rank, activity, and performance.
                 </p>
               </div>
             </div>
@@ -752,7 +753,7 @@ export default function FibPromotionEvaluator() {
               </div>
               <div>
                 <h2 style={{ ...styles.title, fontSize: "24px" }}>Evaluation Result</h2>
-                <p style={styles.subtitle}>Rank, hours, TIR, FTD status, and promotion eligibility.</p>
+                <p style={styles.subtitle}>View an agent’s status and determine if they qualify for their next promotion.</p>
               </div>
             </div>
 
@@ -841,7 +842,7 @@ export default function FibPromotionEvaluator() {
             <div>
               <h2 style={{ ...styles.title, fontSize: "24px" }}>Rank Requirements</h2>
               <p style={styles.subtitle}>
-                Probationary Agent is excluded from the public website list like you asked.
+                Full breakdown of promotion requirements for each rank.
               </p>
             </div>
           </div>
