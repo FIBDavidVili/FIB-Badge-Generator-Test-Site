@@ -124,8 +124,8 @@ const EMPTY_AGENT = {
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(180deg, #0a0f1c 0%, #111827 100%)",
-    color: "#f3f4f6",
+    background: "#ffffff",
+    color: "#111827",
     padding: "24px",
     fontFamily: "Inter, Arial, sans-serif",
   },
@@ -140,14 +140,10 @@ const styles = {
     gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: "24px",
   },
-  bottomGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-    gap: "24px",
-  },
+  
   card: {
-    background: "rgba(17, 24, 39, 0.92)",
-    border: "1px solid rgba(255,255,255,0.08)",
+    background: "#ffffff",
+    border: "1px solid rgba(17,24,39,0.08)",
     borderRadius: "24px",
     padding: "24px",
     boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
@@ -159,13 +155,13 @@ const styles = {
     marginBottom: "18px",
   },
   iconBox: {
-    border: "1px solid rgba(255,255,255,0.1)",
+    border: "1px solid rgba(17,24,39,0.08)",
     borderRadius: "16px",
     padding: "10px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "rgba(255,255,255,0.03)",
+    background: "#f8fafc",
   },
   title: {
     margin: 0,
@@ -174,7 +170,7 @@ const styles = {
   },
   subtitle: {
     margin: "4px 0 0",
-    color: "#9ca3af",
+    color: "#6b7280",
     fontSize: "14px",
   },
   statsGrid: {
@@ -185,9 +181,9 @@ const styles = {
   },
   stat: {
     borderRadius: "18px",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid rgba(17,24,39,0.08)",
     padding: "14px",
-    background: "rgba(255,255,255,0.03)",
+    background: "#f8fafc",
   },
   statLabel: {
     fontSize: "11px",
@@ -214,17 +210,17 @@ const styles = {
   input: {
     flex: 1,
     minWidth: "220px",
-    background: "#0f172a",
-    color: "#f8fafc",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "#ffffff",
+    color: "#111827",
+    border: "1px solid rgba(17,24,39,0.12)",
     borderRadius: "14px",
     padding: "12px 14px",
     fontSize: "14px",
     outline: "none",
   },
   button: {
-    background: "#f3f4f6",
-    color: "#111827",
+    background: "#111827",
+    color: "#ffffff",
     border: "none",
     borderRadius: "14px",
     padding: "12px 16px",
@@ -241,7 +237,7 @@ const styles = {
   },
   error: {
     marginTop: "10px",
-    color: "#fca5a5",
+    color: "#dc2626",
     fontSize: "14px",
     fontWeight: 600,
   },
@@ -255,22 +251,22 @@ const styles = {
   badge: {
     borderRadius: "999px",
     padding: "8px 12px",
-    background: "rgba(255,255,255,0.08)",
-    border: "1px solid rgba(255,255,255,0.08)",
+    background: "#f3f4f6",
+    border: "1px solid rgba(17,24,39,0.08)",
     fontSize: "14px",
     fontWeight: 600,
   },
   divider: {
     border: 0,
-    borderTop: "1px solid rgba(255,255,255,0.08)",
+    borderTop: "1px solid rgba(17,24,39,0.08)",
     margin: "18px 0",
   },
   resultBox: {
     borderRadius: "20px",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid rgba(17,24,39,0.08)",
     padding: "18px",
     marginTop: "16px",
-    background: "rgba(255,255,255,0.02)",
+    background: "#f8fafc",
   },
   resultHeader: {
     display: "flex",
@@ -286,7 +282,7 @@ const styles = {
   pill: {
     borderRadius: "999px",
     padding: "8px 12px",
-    border: "1px solid rgba(255,255,255,0.12)",
+    border: "1px solid rgba(17,24,39,0.12)",
     background: "transparent",
     fontSize: "14px",
   },
@@ -294,10 +290,10 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
     gap: "12px",
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: "1px solid rgba(17,24,39,0.08)",
     borderRadius: "18px",
     padding: "14px",
-    background: "rgba(255,255,255,0.02)",
+    background: "#f8fafc",
     marginBottom: "10px",
   },
   smallLabel: {
@@ -523,7 +519,7 @@ function evaluatePromotion(agent) {
     missing.push("Must be in FTD");
   }
   if (ftdJobs < requirement.minFtdJobs) {
-    missing.push(`${requirement.minFtdJobs - ftdJobs} more FTD job(s)`);
+    missing.push(`${requirement.minFtdJobs - ftdJobs} more FTD activit(ies)`);
   }
 
   if (!requirement.nextRank) {
@@ -675,7 +671,7 @@ export default function FibPromotionEvaluator() {
                 <StatPill label="Hours" value={employee.hours || 0} />
                 <StatPill label="TIR" value={employee.tir || 0} />
                 <StatPill label="In FTD" value={employee.inFtd ? "Yes" : "No"} />
-                <StatPill label="FTD Jobs" value={employee.ftdJobs || 0} />
+                <StatPill label="FTD Activities" value={employee.ftdJobs || 0} />
               </div>
             </div>
 
@@ -707,7 +703,7 @@ export default function FibPromotionEvaluator() {
                     label="FTD Membership"
                     value={result.requirement.mustBeInFtd ? "Required" : "Not Required"}
                   />
-                  <StatPill label="FTD Jobs Needed" value={result.requirement.minFtdJobs} />
+                  <StatPill label="FTD Activities Needed" value={result.requirement.minFtdJobs} />
                 </div>
               ) : (
                 <p style={styles.muted}>No requirement data available for this rank.</p>
@@ -729,50 +725,22 @@ export default function FibPromotionEvaluator() {
           </div>
         </div>
 
-        <div style={styles.bottomGrid}>
-          <div style={styles.card}>
-            <div style={styles.headerRow}>
-              <div style={styles.iconBox}>
-                <ClipboardList size={24} />
-              </div>
-              <div>
-                <h2 style={{ ...styles.title, fontSize: "24px" }}>Rank Requirements</h2>
-                <p style={styles.subtitle}>
-                  Probationary Agent is excluded from the public website list like you asked.
-                </p>
-              </div>
+        <div style={styles.card}>
+          <div style={styles.headerRow}>
+            <div style={styles.iconBox}>
+              <ClipboardList size={24} />
             </div>
-
-            {DISPLAY_RANKS.map((rank) => (
-              <RequirementRow key={rank} rank={rank} data={REQUIREMENTS[rank]} />
-            ))}
-          </div>
-
-          <div style={styles.card}>
-            <h2 style={{ ...styles.title, fontSize: "24px", marginBottom: "8px" }}>Live Sheet Notes</h2>
-            <p style={styles.subtitle}>This version reads directly from the two public sheet links you shared.</p>
-
-            <div style={{ ...styles.requirementRow, marginTop: "18px" }}>
-              <div>
-                <div style={styles.smallLabel}>Main roster</div>
-                <div style={styles.strong}>Used for name, rank, time in rank, hours, and Discord ID matching.</div>
-              </div>
-            </div>
-            <div style={styles.requirementRow}>
-              <div>
-                <div style={styles.smallLabel}>FTD roster</div>
-                <div style={styles.strong}>Used for FTD membership and activity count by Discord ID.</div>
-              </div>
-            </div>
-            <div style={styles.requirementRow}>
-              <div>
-                <div style={styles.smallLabel}>If lookups still fail</div>
-                <div style={styles.strong}>
-                  The most common reason is Google blocking CSV export access in the browser. In that case, move the same lookup logic into a Vercel server route.
-                </div>
-              </div>
+            <div>
+              <h2 style={{ ...styles.title, fontSize: "24px" }}>Rank Requirements</h2>
+              <p style={styles.subtitle}>
+                Probationary Agent is excluded from the public website list like you asked.
+              </p>
             </div>
           </div>
+
+          {DISPLAY_RANKS.map((rank) => (
+            <RequirementRow key={rank} rank={rank} data={REQUIREMENTS[rank]} />
+          ))}
         </div>
       </div>
     </div>
