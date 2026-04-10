@@ -326,23 +326,20 @@ export default async function handler(req: any, res: any) {
     const missingText = eligibleBool ? "None" : missing.join(", ");
 
     const outputLines = [
-      `Name: ${employee.name}`,
-      `Rank: ${employee.rank}`,
-      `Next Rank: ${nextRank}`,
-      ``,
-      `Status: ${eligibleText}`,
-      ``,
-      `Hours: ${employee.hours}`,
-      `TIR: ${employee.tir}`,
-      `FTD: ${inFtd ? "Yes" : "No"}`,
-      `FTD Activities: ${ftdActivities}`,
+      `**Rank:** ${employee.rank}`,
+      `**Next Rank:** ${nextRank}`,
+      `**Hours:** ${employee.hours}`,
+      `**TIR:** ${employee.tir}`,
+      `**FTD:** ${inFtd ? "Yes" : "No"}`,
+      `**FTD Activities:** ${ftdActivities}`,
+      `**Status:** ${eligibleText}`,
     ];
 
     if (reqData.minMonthlyHours) {
-      outputLines.push(`Monthly Hours: ${monthlyHours}`);
+      outputLines.push(`**Monthly Hours:** ${monthlyHours}`);
     }
 
-    outputLines.push(`Missing: ${missingText}`);
+    outputLines.push(`**Missing:** ${missingText}`);
 
     const output = outputLines.join("\n");
 
