@@ -283,9 +283,7 @@ export default async function handler(req: any, res: any) {
     const missingText = eligible ? "None" : missing.join(", ");
 
     const message =
-`🕵️ **FIB Promotion Evaluation**
-
-**Name:** ${employee.name}
+`**Name:** ${employee.name}
 **Rank:** ${employee.rank}
 **Next Rank:** ${nextRank}
 
