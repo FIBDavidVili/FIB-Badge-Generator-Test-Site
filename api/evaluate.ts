@@ -129,27 +129,23 @@ export default async function handler(req: any, res: any) {
     },
   };
 
-  function normalize(value: unknown): string {
-    return String(value ?? "").replace(/\uFEFF/g, "").trim().toLowerCase();
+  function cleanId(id: any) {
+    return String(id || "").replace(/\D/g, "").trim();
   }
 
-  function cleanId(value: unknown): string {
-    return String(value ?? "").replace(/\D/g, "").trim();
-  }
-
-  function parseCSVLine(line: string): string[] {
+  function parseCSVLine(line: string) {
     const result: string[] = [];
     let current = "";
     let inQuotes = false;
 
-    for (let i = 0; i < line.length; i += 1) {
+    for (let i = 0; i < line.length; i++) {
       const char = line[i];
       const next = line[i + 1];
 
       if (char === '"') {
         if (inQuotes && next === '"') {
           current += '"';
-          i += 1;
+          i++;
         } else {
           inQuotes = !inQuotes;
         }
@@ -169,142 +165,23 @@ export default async function handler(req: any, res: any) {
     return result.map((cell) => cell.trim());
   }
 
-  function parseCSV(text: string): string[][] {
+  function parseCSV(text: string) {
     return text
       .split(/\r?\n/)
-      .map((line) => line.trimEnd())
-      .filter((line) => line.length > 0)
+      .filter((line) => line.trim().length > 0)
       .map(parseCSVLine);
   }
 
-  async function fetchSheet(sheetId: string, gid: string): Promise<string[][]> {
-    const urls = [
-      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
-      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
-    ];
+  async function fetchSheet(sheetId: string, gid: string) {
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    const response = await fetch(url);
 
-    let lastError: unknown = null;
-
-    for (const url of urls) {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch sheet ${gid}: ${response.status}`);
-        }
-
-        const text = await response.text();
-        if (!text.trim()) {
-          throw new Error(`Empty sheet response for ${gid}`);
-        }
-
-        return parseCSV(text);
-      } catch (error) {
-        lastError = error;
-      }
+    if (!response.ok) {
+      throw new Error(`Failed to fetch sheet ${gid}`);
     }
 
-    throw lastError instanceof Error ? lastError : new Error("Failed to fetch sheet");
-  }
-
-  function getHeaderMap(row: string[]) {
-    const map: Record<string, number> = {};
-    row.forEach((cell, index) => {
-      const key = normalize(cell);
-      if (key) {
-        map[key] = index;
-      }
-    });
-    return map;
-  }
-
-  function findMainRosterEmployee(rows: string[][], discordId: string) {
-    let headerMap: Record<string, number> | null = null;
-
-    for (const row of rows) {
-      const normalizedRow = row.map(normalize);
-
-      if (normalizedRow.includes("rank") && normalizedRow.includes("discord id")) {
-        headerMap = getHeaderMap(row);
-        continue;
-      }
-
-      if (!headerMap) continue;
-
-      const discordIdx = headerMap["discord id"];
-      const rankIdx = headerMap["rank"];
-      const hoursIdx = headerMap["hours"];
-      const tirIdx = headerMap["time in rank"];
-      const nameIdx = headerMap["name"];
-
-      if ([discordIdx, rankIdx, hoursIdx, tirIdx, nameIdx].some((idx) => idx === undefined)) {
-        continue;
-      }
-
-      const rowDiscordId = cleanId(row[discordIdx]);
-      if (!rowDiscordId || rowDiscordId !== discordId) continue;
-
-      return {
-        name: row[nameIdx] || "",
-        rank: row[rankIdx] || "",
-        hours: Number(row[hoursIdx] || 0),
-        tir: Number(row[tirIdx] || 0),
-      };
-    }
-
-    return null;
-  }
-
-  function findFtdEmployee(rows: string[][], discordId: string) {
-    let headerMap: Record<string, number> | null = null;
-
-    for (const row of rows) {
-      const normalizedRow = row.map(normalize);
-
-      if (
-        normalizedRow.includes("discord id") &&
-        (normalizedRow.includes("activities") || normalizedRow.includes("total logs"))
-      ) {
-        headerMap = getHeaderMap(row);
-        continue;
-      }
-
-      if (!headerMap) continue;
-
-      const discordIdx = headerMap["discord id"];
-      const activitiesIdx = headerMap["activities"] ?? headerMap["total logs"];
-
-      if (discordIdx === undefined || activitiesIdx === undefined) {
-        continue;
-      }
-
-      const rowDiscordId = cleanId(row[discordIdx]);
-      if (!rowDiscordId || rowDiscordId !== discordId) continue;
-
-      return {
-        inFtd: true,
-        ftdActivities: Number(row[activitiesIdx] || 0),
-      };
-    }
-
-    return {
-      inFtd: false,
-      ftdActivities: 0,
-    };
-  }
-
-  function findMonthlyHoursEmployee(rows: string[][], discordId: string) {
-    for (const row of rows) {
-      const rowDiscordId = cleanId(row[5]); // F
-      if (!rowDiscordId || rowDiscordId !== discordId) continue;
-
-      return {
-        monthlyHours: Number(row[6] || 0), // G
-      };
-    }
-
-    return {
-      monthlyHours: 0,
-    };
+    const text = await response.text();
+    return parseCSV(text);
   }
 
   const discordId = cleanId(req.query.discordId);
@@ -323,7 +200,24 @@ export default async function handler(req: any, res: any) {
       fetchSheet(MAIN_SHEET_ID, HOURS_MANAGER_GID),
     ]);
 
-    const employee = findMainRosterEmployee(main, discordId);
+    let employee: {
+      name: string;
+      rank: string;
+      hours: number;
+      tir: number;
+    } | null = null;
+
+    for (const row of main) {
+      if (cleanId(row[10]) === discordId) {
+        employee = {
+          name: row[3] || "",
+          rank: row[4] || "",
+          hours: Number(row[9] || 0),
+          tir: Number(row[8] || 0),
+        };
+        break;
+      }
+    }
 
     if (!employee) {
       return res.status(404).json({
@@ -332,21 +226,34 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    let ftdActivities = 0;
+    let inFtd = false;
+
+    for (const row of ftd) {
+      if (cleanId(row[2]) === discordId) {
+        ftdActivities = Number(row[5] || 0);
+        inFtd = true;
+        break;
+      }
+    }
+
+    let monthlyHours = 0;
+
+    for (const row of hours) {
+      if (cleanId(row[5]) === discordId) {
+        monthlyHours = Number(row[6] || 0);
+        break;
+      }
+    }
+
     const reqData = REQUIREMENTS[employee.rank];
 
     if (!reqData) {
       return res.status(400).json({
         ok: false,
-        message: `❌ Unsupported rank: ${employee.rank}`,
+        message: "❌ Unsupported rank",
       });
     }
-
-    const ftdData = findFtdEmployee(ftd, discordId);
-    const monthlyData = findMonthlyHoursEmployee(hours, discordId);
-
-    const inFtd = ftdData.inFtd;
-    const ftdActivities = ftdData.ftdActivities;
-    const monthlyHours = monthlyData.monthlyHours;
 
     const missing: string[] = [];
 
@@ -375,11 +282,10 @@ export default async function handler(req: any, res: any) {
     const nextRank = reqData.nextRank || "High Command";
     const missingText = eligible ? "None" : missing.join(", ");
 
-    const monthlyLine =
-      (reqData.minMonthlyHours || 0) > 0 ? `**Monthly Hours:** ${monthlyHours}\n` : "";
-
     const message =
-`**Name:** ${employee.name}
+`🕵️ **FIB Promotion Evaluation**
+
+**Name:** ${employee.name}
 **Rank:** ${employee.rank}
 **Next Rank:** ${nextRank}
 
@@ -389,7 +295,8 @@ export default async function handler(req: any, res: any) {
 **TIR:** ${employee.tir}
 **FTD:** ${inFtd ? "Yes" : "No"}
 **FTD Activities:** ${ftdActivities}
-${monthlyLine}**Missing:** ${missingText}`;
+${(reqData.minMonthlyHours || 0) > 0 ? `**Monthly Hours:** ${monthlyHours}\n` : ""}
+**Missing:** ${missingText}`;
 
     return res.status(200).json({
       ok: true,
