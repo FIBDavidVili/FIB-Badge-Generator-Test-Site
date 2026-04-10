@@ -138,14 +138,14 @@ export default async function handler(req: any, res: any) {
     let current = "";
     let inQuotes = false;
 
-    for (let i = 0; i < line.length; i++) {
+    for (let i = 0; i < line.length; i += 1) {
       const char = line[i];
       const next = line[i + 1];
 
       if (char === '"') {
         if (inQuotes && next === '"') {
           current += '"';
-          i++;
+          i += 1;
         } else {
           inQuotes = !inQuotes;
         }
@@ -173,15 +173,33 @@ export default async function handler(req: any, res: any) {
   }
 
   async function fetchSheet(sheetId: string, gid: string) {
-    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-    const response = await fetch(url);
+    const urls = [
+      `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
+      `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
+    ];
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch sheet ${gid}`);
+    let lastError: any = null;
+
+    for (const url of urls) {
+      try {
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch sheet ${gid}`);
+        }
+
+        const text = await response.text();
+        if (!text.trim()) {
+          throw new Error(`Empty sheet ${gid}`);
+        }
+
+        return parseCSV(text);
+      } catch (error) {
+        lastError = error;
+      }
     }
 
-    const text = await response.text();
-    return parseCSV(text);
+    throw lastError || new Error(`Failed to fetch sheet ${gid}`);
   }
 
   const discordId = cleanId(req.query.discordId);
@@ -251,7 +269,7 @@ export default async function handler(req: any, res: any) {
     if (!reqData) {
       return res.status(400).json({
         ok: false,
-        message: "❌ Unsupported rank",
+        message: `❌ Unsupported rank: ${employee.rank}`,
       });
     }
 
@@ -278,12 +296,14 @@ export default async function handler(req: any, res: any) {
     }
 
     const eligible = missing.length === 0;
-    const status = eligible ? "✅ Eligible" : "❌ Not Eligible";
     const nextRank = reqData.nextRank || "High Command";
+    const status = eligible ? "✅ Eligible" : "❌ Not Eligible";
     const missingText = eligible ? "None" : missing.join(", ");
 
-    const message =
-`**Name:** ${employee.name}
+    const monthlyLine =
+      (reqData.minMonthlyHours || 0) > 0 ? `**Monthly Hours:** ${monthlyHours}\n` : "";
+
+    const message = `**Name:** ${employee.name}
 **Rank:** ${employee.rank}
 **Next Rank:** ${nextRank}
 
@@ -293,8 +313,7 @@ export default async function handler(req: any, res: any) {
 **TIR:** ${employee.tir}
 **FTD:** ${inFtd ? "Yes" : "No"}
 **FTD Activities:** ${ftdActivities}
-${(reqData.minMonthlyHours || 0) > 0 ? `**Monthly Hours:** ${monthlyHours}\n` : ""}
-**Missing:** ${missingText}`;
+${monthlyLine}**Missing:** ${missingText}`;
 
     return res.status(200).json({
       ok: true,
@@ -302,13 +321,13 @@ ${(reqData.minMonthlyHours || 0) > 0 ? `**Monthly Hours:** ${monthlyHours}\n` : 
       name: employee.name,
       rank: employee.rank,
       nextRank,
-      eligible,
-      missing: missingText,
+      eligible: status,
       hours: employee.hours,
       tir: employee.tir,
       ftd: inFtd ? "Yes" : "No",
       ftdActivities,
       monthlyHours,
+      missing: missingText,
     });
   } catch (e: any) {
     return res.status(500).json({
